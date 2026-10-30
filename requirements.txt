@@ -1,7 +1,7 @@
 streamlit
 pandas
-numpy
-geopy
-requests
-openpyxl
+folium
+streamlit-folium
 xlsxwriter
+openpyxl
+geopy

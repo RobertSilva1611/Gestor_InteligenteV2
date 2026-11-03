@@ -1635,13 +1635,25 @@ def mostrar_visualizador_carteiras():
                 st.session_state['clientes_selecionados'] = []
                 st.rerun()
             
-            df_selecionados = df_mapa[df_mapa[c['cod']].astype(str).isin(st.session_state['clientes_selecionados'])]
+            df_selecionados = df_mapa[df_mapa[c['cod']].astype(str).isin(st.session_state['clientes_selecionados'])].copy()
             
-            colunas_export = [c['cod'], c['nome'], 'VENDEDOR', c['mun'], c['bairro'], c['cep'], c['end']]
-            if c.get('media'): colunas_export.append(c['media'])
-            if c.get('status'): colunas_export.append(c['status'])
+            # 1. Remove colunas duplicadas que já existam na estrutura interna do DataFrame
+            df_selecionados = df_selecionados.loc[:, ~df_selecionados.columns.duplicated()]
+            
+            # 2. Monta a lista bruta das colunas desejadas
+            raw_cols = [c.get('cod'), c.get('nome'), 'VENDEDOR', c.get('mun'), c.get('bairro'), c.get('cep'), c.get('end')]
+            if c.get('media'): raw_cols.append(c['media'])
+            if c.get('status'): raw_cols.append(c['status'])
+            
+            # 3. Filtra apenas colunas válidas e remove duplicatas mantendo a ordem
+            colunas_export = []
+            for col in raw_cols:
+                if col and col in df_selecionados.columns and col not in colunas_export:
+                    colunas_export.append(col)
             
             df_final_export = df_selecionados[colunas_export]
+            
+            # Exibe no Streamlit sem risco de erro de duplicidade no PyArrow
             st.dataframe(df_final_export, use_container_width=True)
             
             buffer = io.BytesIO()

@@ -1354,107 +1354,11 @@ def mostrar_visualizador_carteiras():
                     st.session_state['cart_etapa'] = 'proc'
                     st.rerun()
 
-    elif st.session_state['cart_etapa'] == 'proc':
-        st.title("📡 Cruzando base com a Tabela de Correções e Satélite...")
-        df = st.session_state['df_cart_raw'].copy()
-        c = st.session_state['cart_cols']
-        
-        df['LATITUDE'] = 0.0
-        df['LONGITUDE'] = 0.0
-        df['TIPO_DE_LOCALIZACAO'] = 'Erro'
-        
-        # 1. Carrega a Tabela Suprema de Correções
-        df_correcoes = carregar_correcoes()
-        correcoes_dict = {}
-        if not df_correcoes.empty:
-            correcoes_dict = df_correcoes.set_index('Codigo').to_dict('index')
-
-        # 2. O PULO DO GATO: Usa a memória já existente do Roteirizador!
-        df_memoria = carregar_memoria()
-        mem_by_id = {}
-        if 'ID_Cliente' in df_memoria.columns:
-            df_memoria['ID_Limp'] = df_memoria['ID_Cliente'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
-            mem_by_id = df_memoria.drop_duplicates(subset=['ID_Limp'], keep='last').set_index('ID_Limp').to_dict('index')
-        
-        missing_indices = []
-        for idx, row in df.iterrows():
-            cod_cli = str(row.get(c['cod'], '')).replace('.0', '').strip().upper()
-            
-            # 1. Limpa o endereço que acabou de subir no Excel para poder comparar com o do Banco
-            end_atual_bruto = row.get(c['end'], '')
-            end_atual_limpo = limpar_endereco_para_geocoding(end_atual_bruto) if pd.notna(end_atual_bruto) else ""
-            
-            # PRIORIDADE MÁXIMA: Verifica se o cliente tem correção manual!
-            if cod_cli in correcoes_dict:
-                df.at[idx, 'LATITUDE'] = float(correcoes_dict[cod_cli]['Latitude'])
-                df.at[idx, 'LONGITUDE'] = float(correcoes_dict[cod_cli]['Longitude'])
-                df.at[idx, 'TIPO_DE_LOCALIZACAO'] = "Manual (Corrigido)"
-                df.at[idx, c['end']] = correcoes_dict[cod_cli]['Endereco_Novo']
-                df.at[idx, c['bairro']] = correcoes_dict[cod_cli]['Bairro_Novo']
-                
-            # SEGUNDA PRIORIDADE: Tenta o Cache Geral da Memória + VALIDAÇÃO DE MUDANÇA DE ENDEREÇO
-            elif cod_cli in mem_by_id and float(mem_by_id[cod_cli].get('Latitude', 0)) != 0:
-                end_memoria = str(mem_by_id[cod_cli].get('End_Correto', '')).strip()
-                
-                # Se o endereço for idêntico ao do banco, usa a memória e economiza satélite
-                if end_atual_limpo == end_memoria or end_memoria == "":
-                    df.at[idx, 'LATITUDE'] = float(mem_by_id[cod_cli]['Latitude'])
-                    df.at[idx, 'LONGITUDE'] = float(mem_by_id[cod_cli]['Longitude'])
-                    df.at[idx, 'TIPO_DE_LOCALIZACAO'] = mem_by_id[cod_cli]['Score'] + " (Memória)"
-                    if mem_by_id[cod_cli].get('End_Correto'): df.at[idx, c['end']] = mem_by_id[cod_cli]['End_Correto']
-                    if mem_by_id[cod_cli].get('Bairro_Correto'): df.at[idx, c['bairro']] = mem_by_id[cod_cli]['Bairro_Correto']
-                else:
-                    # O PULO DO GATO AQUI: O endereço mudou! Manda para a fila do satélite buscar de novo.
-                    missing_indices.append(idx)
-                    
-            # TERCEIRA PRIORIDADE: Vai pro satélite (ArcGIS) (Cliente totalmente novo)
-            else:
-                missing_indices.append(idx)
-                
-        if missing_indices:
-            geo = ArcGIS(timeout=10)
-            novos_dados_memoria = []
-            st.caption(f"Buscando {len(missing_indices)} novos clientes no satélite...")
-            prog_bar = st.progress(0)
-            
-            for i, idx in enumerate(missing_indices):
-                row = df.loc[idx]
-                cep = str(row[c['cep']]).strip().replace("-","").replace(".","")
-                bairro = corrigir_texto_erp(row[c['bairro']]) if pd.notna(row[c['bairro']]) else ""
-                municipio = corrigir_texto_erp(row[c['mun']]) if pd.notna(row[c['mun']]) else ""
-                end_limpo = limpar_endereco_para_geocoding(row[c['end']])
-                cod_cli = str(row.get(c['cod'], '')).replace('.0', '').strip().upper()
-                chave = gerar_chave_cache(end_limpo, municipio, cep)
-                
-                try:
-                    busca_completa = f"{end_limpo}, {bairro}, {municipio}, {cep}, SP, Brasil"
-                    loc = geo.geocode(busca_completa)
-                    
-                    if loc and is_valid_sp_coord(loc.latitude, loc.longitude):
-                        lat, lon = loc.latitude, loc.longitude
-                        df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = lat, lon, "Exata"
-                        novos_dados_memoria.append({'Chave': chave, 'Latitude': lat, 'Longitude': lon, 'Score': "Exata", 'ID_Cliente': cod_cli, 'End_Correto': end_limpo, 'Bairro_Correto': bairro})
-                    else:
-                        df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = -1.0, -1.0, 'Erro (Tratamento Manual Necessário)'
-                except:
-                    df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = -1.0, -1.0, 'Erro'
-                    
-                prog_bar.progress((i + 1) / len(missing_indices))
-                
-            if novos_dados_memoria:
-                salvar_memoria(pd.DataFrame(novos_dados_memoria))
-
-        df['VENDEDOR'] = df[c['vend']].fillna("SEM VENDEDOR")
-        st.session_state['df_cart_final'] = df
-        st.session_state['cart_etapa'] = 'dash'
-        time.sleep(1)
-        st.rerun()
-
-    elif st.session_state['cart_etapa'] == 'dash':
+elif st.session_state['cart_etapa'] == 'dash':
         df = st.session_state['df_cart_final']
         c = st.session_state['cart_cols']
 
-        # Inicializa a lista de selecionados
+        # Inicializa a lista principal de selecionados
         if 'clientes_selecionados' not in st.session_state:
             st.session_state['clientes_selecionados'] = []
 
@@ -1512,7 +1416,7 @@ def mostrar_visualizador_carteiras():
 
             is_selected = cod_cliente in st.session_state['clientes_selecionados']
 
-            # Pop-up limpo e padronizado (sem botões quebrados de iframe)
+            # Pop-up do Cliente
             popup_content = f"""
             <div style="font-family: Arial, sans-serif; width: 280px; padding: 5px;">
                 <strong style="font-size: 14px; color: {cor_pino};">{row.get(c['nome'],'')}</strong><br>
@@ -1536,22 +1440,16 @@ def mostrar_visualizador_carteiras():
             </div>
             """
 
-            # VERIFICA SE O CLIENTE JÁ ESTÁ NA LISTA
-            is_selected = cod_cliente in st.session_state['clientes_selecionados']
-
             if is_selected:
-                # 🌟 CLIENTE SELECIONADO: Pino Dourado (#D3AF37) com Estrela Branca
+                # 🌟 SVG CORRIGIDO: Removido 'transform' do CSS para travar a ponta exatamente na coordenada exata
                 svg_estrela_dourada = """
-                <div style="position: relative; width: 30px; height: 42px; transform: translate(-50%, -100%); filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4));">
+                <div style="width: 30px; height: 42px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4));">
                     <svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <!-- Corpo do Pino Dourado (#D3AF37) -->
                         <path d="M15 0C6.71573 0 0 6.71573 0 15C0 26.25 15 42 15 42C15 42 30 26.25 30 15C30 6.71573 23.2843 0 15 0Z" fill="#D3AF37" stroke="#111111" stroke-width="1"/>
-                        <!-- Estrela Branca no Centro -->
                         <polygon points="15,5 18.09,11.26 25,12.27 20,17.14 21.18,24.02 15,20.77 8.82,24.02 10,17.14 5,12.27 11.91,11.26" fill="#FFFFFF"/>
                     </svg>
                 </div>
                 """
-                
                 folium.Marker(
                     location=[lat, lon],
                     tooltip=cod_cliente,
@@ -1563,7 +1461,6 @@ def mostrar_visualizador_carteiras():
                     )
                 ).add_to(mapa)
             else:
-                # 🔵 CLIENTE NORMAL: Bolinha colorida do vendedor
                 folium.CircleMarker(
                     location=[lat, lon],
                     radius=6,
@@ -1576,19 +1473,17 @@ def mostrar_visualizador_carteiras():
                     popup=folium.Popup(popup_content, max_width=300)
                 ).add_to(mapa)
 
-        # -------------------------------------------------------------------
-        # 1. RENDERIZAÇÃO EXPANDIDA DO MAPA (Resolve o mapa fino)
-        # -------------------------------------------------------------------
+        # Renderização do Mapa
         mapa_dados = st_folium(
             mapa, 
-            height=750, # Altura generosa para o mapa ficar bem visível
-            use_container_width=True, # Força a ocupar 100% da largura da tela
+            height=750, 
+            use_container_width=True, 
             returned_objects=["last_object_clicked_tooltip"],
             key="mapa_carteiras_v8"
         )
 
         # -------------------------------------------------------------------
-        # 2. PAINEL DE AÇÃO NATIVO (Aparece ao clicar em qualquer pino)
+        # PAINEL DE AÇÃO NATIVO (Com Sincronia de Estado do Widget)
         # -------------------------------------------------------------------
         if mapa_dados and mapa_dados.get("last_object_clicked_tooltip"):
             cod_clicado = str(mapa_dados["last_object_clicked_tooltip"])
@@ -1610,10 +1505,15 @@ def mostrar_visualizador_carteiras():
                     else:
                         if st.button("➕ Adicionar à Lista", type="primary", use_container_width=True, key=f"btn_add_{cod_clicado}"):
                             st.session_state['clientes_selecionados'].append(cod_clicado)
+                            
+                            # SINCRONIZAÇÃO CRÍTICA: Atualiza o estado do widget multiselect para não reverter no rerun
+                            if "seletor_clientes_export" in st.session_state:
+                                st.session_state["seletor_clientes_export"] = list(st.session_state['clientes_selecionados'])
+                                
                             st.rerun()
 
         # -------------------------------------------------------------------
-        # 3. LISTA DE EXPORTAÇÃO E DOWNLOAD EXCEL
+        # LISTA DE EXPORTAÇÃO E DOWNLOAD EXCEL
         # -------------------------------------------------------------------
         if st.session_state['clientes_selecionados']:
             st.divider()
@@ -1633,27 +1533,23 @@ def mostrar_visualizador_carteiras():
                 
             if st.button("🗑️ Limpar Toda a Seleção", key="btn_limpar_tudo_export"):
                 st.session_state['clientes_selecionados'] = []
+                if "seletor_clientes_export" in st.session_state:
+                    st.session_state["seletor_clientes_export"] = []
                 st.rerun()
             
             df_selecionados = df_mapa[df_mapa[c['cod']].astype(str).isin(st.session_state['clientes_selecionados'])].copy()
-            
-            # 1. Remove colunas duplicadas que já existam na estrutura interna do DataFrame
             df_selecionados = df_selecionados.loc[:, ~df_selecionados.columns.duplicated()]
             
-            # 2. Monta a lista bruta das colunas desejadas
             raw_cols = [c.get('cod'), c.get('nome'), 'VENDEDOR', c.get('mun'), c.get('bairro'), c.get('cep'), c.get('end')]
             if c.get('media'): raw_cols.append(c['media'])
             if c.get('status'): raw_cols.append(c['status'])
             
-            # 3. Filtra apenas colunas válidas e remove duplicatas mantendo a ordem
             colunas_export = []
             for col in raw_cols:
                 if col and col in df_selecionados.columns and col not in colunas_export:
                     colunas_export.append(col)
             
             df_final_export = df_selecionados[colunas_export]
-            
-            # Exibe no Streamlit sem risco de erro de duplicidade no PyArrow
             st.dataframe(df_final_export, use_container_width=True)
             
             buffer = io.BytesIO()
@@ -1668,7 +1564,6 @@ def mostrar_visualizador_carteiras():
                 type="primary",
                 key="btn_baixar_excel_export"
             )
-
 # ==========================================
 # 6. APLICAÇÃO PRINCIPAL
 # ==========================================

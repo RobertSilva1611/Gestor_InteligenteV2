@@ -1354,7 +1354,7 @@ def mostrar_visualizador_carteiras():
                     st.session_state['cart_etapa'] = 'proc'
                     st.rerun()
 
-elif st.session_state['cart_etapa'] == 'dash':
+    elif st.session_state['cart_etapa'] == 'dash':
         df = st.session_state['df_cart_final']
         c = st.session_state['cart_cols']
 

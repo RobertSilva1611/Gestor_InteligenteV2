@@ -1358,9 +1358,24 @@ def mostrar_visualizador_carteiras():
         df = st.session_state['df_cart_final']
         c = st.session_state['cart_cols']
 
-        # Inicializa a lista principal de selecionados
+        # -------------------------------------------------------------------
+        # INICIALIZAÇÃO DE ESTADOS E FUNÇÕES DE CALLBACK
+        # -------------------------------------------------------------------
         if 'clientes_selecionados' not in st.session_state:
             st.session_state['clientes_selecionados'] = []
+
+        # Funções para atualizar o estado com segurança (callbacks)
+        def callback_adicionar(cod):
+            if cod not in st.session_state['clientes_selecionados']:
+                st.session_state['clientes_selecionados'].append(cod)
+                st.session_state['seletor_clientes_export'] = list(st.session_state['clientes_selecionados'])
+
+        def callback_limpar():
+            st.session_state['clientes_selecionados'] = []
+            st.session_state['seletor_clientes_export'] = []
+
+        def callback_atualizar_multiselect():
+            st.session_state['clientes_selecionados'] = list(st.session_state.get('seletor_clientes_export', []))
 
         df_mapa = df[(df['LATITUDE'] != 0.0) & (df['LATITUDE'] != -1.0) & (df['LATITUDE'].notna())].copy()
 
@@ -1441,7 +1456,7 @@ def mostrar_visualizador_carteiras():
             """
 
             if is_selected:
-                # 🌟 SVG CORRIGIDO: Removido 'transform' do CSS para travar a ponta exatamente na coordenada exata
+                # 🌟 Marcador Dourado com Estrela Branca (#D3AF37)
                 svg_estrela_dourada = """
                 <div style="width: 30px; height: 42px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4));">
                     <svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1483,7 +1498,7 @@ def mostrar_visualizador_carteiras():
         )
 
         # -------------------------------------------------------------------
-        # PAINEL DE AÇÃO NATIVO (Com Sincronia de Estado do Widget)
+        # PAINEL DE AÇÃO NATIVO
         # -------------------------------------------------------------------
         if mapa_dados and mapa_dados.get("last_object_clicked_tooltip"):
             cod_clicado = str(mapa_dados["last_object_clicked_tooltip"])
@@ -1503,14 +1518,14 @@ def mostrar_visualizador_carteiras():
                     if cod_clicado in st.session_state['clientes_selecionados']:
                         st.success("✅ Já está na Lista")
                     else:
-                        if st.button("➕ Adicionar à Lista", type="primary", use_container_width=True, key=f"btn_add_{cod_clicado}"):
-                            st.session_state['clientes_selecionados'].append(cod_clicado)
-                            
-                            # SINCRONIZAÇÃO CRÍTICA: Atualiza o estado do widget multiselect para não reverter no rerun
-                            if "seletor_clientes_export" in st.session_state:
-                                st.session_state["seletor_clientes_export"] = list(st.session_state['clientes_selecionados'])
-                                
-                            st.rerun()
+                        st.button(
+                            "➕ Adicionar à Lista", 
+                            type="primary", 
+                            use_container_width=True, 
+                            key=f"btn_add_{cod_clicado}",
+                            on_click=callback_adicionar,
+                            args=(cod_clicado,)
+                        )
 
         # -------------------------------------------------------------------
         # LISTA DE EXPORTAÇÃO E DOWNLOAD EXCEL
@@ -1519,23 +1534,23 @@ def mostrar_visualizador_carteiras():
             st.divider()
             st.markdown("### 📥 Clientes Selecionados para Exportação")
             
-            lista_atual = st.session_state['clientes_selecionados']
-            nova_lista = st.multiselect(
+            # Inicializa a chave da lista no session_state caso ainda não exista
+            if "seletor_clientes_export" not in st.session_state:
+                st.session_state["seletor_clientes_export"] = list(st.session_state['clientes_selecionados'])
+
+            st.multiselect(
                 "Gerenciar lista (Clique no 'X' na etiqueta para remover um cliente específico):", 
-                options=lista_atual, 
-                default=lista_atual,
-                key="seletor_clientes_export"
+                options=st.session_state['clientes_selecionados'], 
+                key="seletor_clientes_export",
+                on_change=callback_atualizar_multiselect
             )
             
-            if nova_lista != lista_atual:
-                st.session_state['clientes_selecionados'] = nova_lista
-                st.rerun()
-                
-            if st.button("🗑️ Limpar Toda a Seleção", key="btn_limpar_tudo_export"):
-                st.session_state['clientes_selecionados'] = []
-                if "seletor_clientes_export" in st.session_state:
-                    st.session_state["seletor_clientes_export"] = []
-                st.rerun()
+            # Botão Limpar Tudo usando callback seguro para evitar StreamlitWidgetAlreadyInstantiatedError
+            st.button(
+                "🗑️ Limpar Toda a Seleção", 
+                key="btn_limpar_tudo_export",
+                on_click=callback_limpar
+            )
             
             df_selecionados = df_mapa[df_mapa[c['cod']].astype(str).isin(st.session_state['clientes_selecionados'])].copy()
             df_selecionados = df_selecionados.loc[:, ~df_selecionados.columns.duplicated()]

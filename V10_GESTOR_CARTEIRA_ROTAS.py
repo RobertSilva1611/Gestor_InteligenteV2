@@ -1204,254 +1204,237 @@ def mostrar_visualizador_operacional():
                             # Tabela do Pandas formatada
                             st.dataframe(df_exibir, hide_index=True, use_container_width=True)
                             
-        def mostrar_visualizador_carteiras():
-            st.title("🗺️ Visualizador Geral de Carteiras")
-        
-            st.markdown("""
-                <div style="background-color: #fff3cd; padding: 20px; border-radius: 10px; border-left: 6px solid #ffc107; margin-bottom: 20px;">
-                    <h4 style="color: #856404; margin-top: 0;">⚠️ Atenção: Regra de Importação</h4>
-                    <p style="color: #856404; font-size: 15px;">
-                        Para garantir o funcionamento da Aplicação é necessario que o arquivo tenha as seguintes colunas na primeira linha da base de dados: .<br>
-                        <b>Código Cliente - Nome Vendedor - Nome Cliente -  - Endereço - Municipio - CEP - Bairro.<b>
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        
-    
-    
-        if 'cart_etapa' not in st.session_state: st.session_state['cart_etapa'] = 'config'
-        if 'df_cart_raw' not in st.session_state: st.session_state['df_cart_raw'] = None
-        if 'df_cart_final' not in st.session_state: st.session_state['df_cart_final'] = None
-        if 'cart_reset_count' not in st.session_state: st.session_state['cart_reset_count'] = 0
-    
-        with st.sidebar:
-            st.divider()
-            if st.button("🔄 Reiniciar Visualizador de Carteiras", use_container_width=True):
-                st.session_state['cart_etapa'] = 'config'
-                st.session_state['df_cart_raw'] = None
-                st.session_state['df_cart_final'] = None
-                st.session_state['cart_sheet_selected'] = None 
-                st.session_state['cart_reset_count'] += 1      
-                st.rerun()
-                
-            # --- NOVO BLOCO: BOTÃO SEMPRE VISÍVEL ---
-            st.divider()
-            st.markdown("### ⚙️ Atualização Rápida")
-            if st.button("🔄 Recarregar Excel (Puxar alterações)", type="primary", use_container_width=True):
-                st.cache_data.clear() # Limpa a memória
-                st.session_state['df_cart_raw'] = None
-                st.session_state['df_cart_final'] = None
-                st.session_state['cart_etapa'] = 'config' # Volta rapidinho pra tela inicial pra ler de novo
-                st.rerun()
-    
-        if st.session_state['cart_etapa'] == 'config':
-            st.markdown("Importe a base de dados contendo toda a carteira da empresa (Excel ou CSV).")
-            modo_leitura = st.sidebar.radio(
-                "Como deseja carregar o arquivo?",
-                ["Modo Upload (📂)", "Modo Caminho Fixo (Atualiza via botão)"]
-            )
-            
-            uploaded = None
-    
-            if modo_leitura == "Modo Caminho Fixo (Atualiza via botão)":
-                caminho_input = st.text_input("Cole o caminho completo do arquivo (Ex: C:\\Pasta\\planilha.xlsx):", 
-                    value=st.session_state.get('caminho_fixo', ""))
-                if caminho_input:
-                    import os
-                    if os.path.exists(caminho_input):
-                        uploaded = caminho_input
-                        # Salva na memória para não sumir quando recarregar a tela
-                        st.session_state['caminho_fixo'] = caminho_input 
-                        st.success("✅ Conectado! Se alterar o Excel, basta clicar em 'Recarregar Dados' ali do lado.")
-                    else:
-                        st.error("⚠️ Arquivo não encontrado. Verifique o caminho digitado.")
-            else:
-                st.info("Aviso: Se alterar o Excel no seu PC, você precisará fechar no 'X' abaixo e puxar o arquivo novamente.")
-                uploaded = st.file_uploader("📂 Importar Tabela da Carteira", type=["xlsx", "csv"], 
-                                            key=f"up_cart_{st.session_state['cart_reset_count']}")
-            
-            # --- PROCESSAMENTO DO ARQUIVO ---
-            if uploaded is not None:
-                import os
-                nome_arquivo = os.path.basename(uploaded) if isinstance(uploaded, str) else uploaded.name
-                
-                if nome_arquivo.endswith('.csv'):
-                    # ... o resto do seu código de processamento continua exatamente igual ...
-                    st.session_state['df_cart_raw'] = pd.read_csv(uploaded, dtype=str)
-                    aba_selecionada = "CSV"
-                    linha_cabecalho = 1
-                else:
-                    xls = pd.ExcelFile(uploaded)
-                    sheet_names = xls.sheet_names
-                    
-                    # Usamos a variável nova 'nome_arquivo' aqui
-                    if st.session_state.get('cart_sheet_selected') != nome_arquivo:
-                        st.divider()
-                        st.markdown("### ⚙️ Detalhes do Arquivo Excel")
-                        col_aba, col_linha = st.columns(2)
-                        aba_selecionada = col_aba.selectbox("Em qual aba estão os dados?", sheet_names, key="cart_aba")
-                        linha_cabecalho = col_linha.number_input("Em qual linha começa o cabeçalho?", min_value=1, value=1, step=1, key="cart_linha")
-                        
-                        if st.button("📥 Confirmar e Carregar Dados", type="primary"):
-                            st.session_state['df_cart_raw'] = pd.read_excel(uploaded, sheet_name=aba_selecionada, header=(linha_cabecalho - 1), dtype=str)
-                            st.session_state['cart_sheet_selected'] = nome_arquivo # Usamos aqui também
-                            st.rerun()
-                            
-                # O formulário de colunas aparece apenas quando os dados foram confirmados
-                if st.session_state['df_cart_raw'] is not None:
-                    df_raw = st.session_state['df_cart_raw']
-                    cols = df_raw.columns.tolist()
-                    
-                    def achar_coluna(palavras_chave):
-                        for col in cols:
-                            if any(p.lower() in str(col).lower() for p in palavras_chave): return cols.index(col)
-                        return 0
-                    
-                    st.divider()
-                    st.markdown("### ⚙️ Mapeamento de Colunas")
-                    
-                    # Criar uma lista com a opção de não mapear no início
-                    cols_opcionais = ["Não mapear"] + list(cols)
-                    
-                    # Ajuste para manter a deteção automática nas opcionais
-                    def idx_opc(palavras):
-                        idx = achar_coluna(palavras)
-                        return idx + 1 if idx is not None and idx > 0 else 0
-    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        c_cod = st.selectbox("CÓDIGO DO CLIENTE", cols, index=achar_coluna(['cód', 'cod', 'id', 'sap']), key="c_cart_cod")
-                        c_nome = st.selectbox("NOME DO CLIENTE", cols, index=achar_coluna(['cliente', 'razão', 'nome', 'razao Social']), key="c_cart_nome")
-                        c_vendedor_atual = st.selectbox("VENDEDOR", cols, index=achar_coluna(['vendedor', 'vend']), key="c_cart_vend")
-                        c_bairro = st.selectbox("BAIRRO", cols, index=achar_coluna(['bairro']), key="c_cart_bairro")
-                        
-                        # Coluna Opcional
-                        c_media = st.selectbox("MÉDIA 3 MESES (Opcional)", cols_opcionais, index=idx_opc(['média', 'media', '3 meses', 'valor']), key="c_cart_media")
-                    
-                    with col2:
-                        c_cep = st.selectbox("CEP", cols, index=achar_coluna(['cep']), key="c_cart_cep")
-                        c_end = st.selectbox("ENDEREÇO", cols, index=achar_coluna(['endereço', 'endereco', 'rua']), key="c_cart_end")
-                        c_municipio = st.selectbox("MUNICÍPIO", cols, index=achar_coluna(['cidade', 'município', 'mun']), key="c_cart_mun")
-                        
-                        # Coluna Opcional
-                        c_status = st.selectbox("STATUS (Opcional)", cols_opcionais, index=idx_opc(['status', 'situação', 'situacao']), key="c_cart_status")
-                        
-                    st.write("##")
-                    if st.button("🚀 INICIAR MAPEAMENTO DA CARTEIRA", type="primary", use_container_width=True):
-                        # Grava o valor no state, mas se for "Não mapear", guarda None para facilitar a lógica à frente
-                        st.session_state['cart_cols'] = {
-                            'cod': c_cod, 
-                            'nome': c_nome, 
-                            'cep': c_cep, 
-                            'end': c_end, 
-                            'bairro': c_bairro, 
-                            'mun': c_municipio, 
-                            'vend': c_vendedor_atual,
-                            'media': c_media if c_media != "Não mapear" else None,
-                            'status': c_status if c_status != "Não mapear" else None
-                        }
-                        st.session_state['cart_etapa'] = 'proc'
-                        st.rerun()
-    
-        elif st.session_state['cart_etapa'] == 'proc':
-            st.title("📡 Cruzando base com a Tabela de Correções e Satélite...")
-            df = st.session_state['df_cart_raw'].copy()
-            c = st.session_state['cart_cols']
-            
-            df['LATITUDE'] = 0.0
-            df['LONGITUDE'] = 0.0
-            df['TIPO_DE_LOCALIZACAO'] = 'Erro'
-            
-            df_correcoes = carregar_correcoes()
-            correcoes_dict = {}
-            if not df_correcoes.empty:
-                correcoes_dict = df_correcoes.set_index('Codigo').to_dict('index')
+# --- Função Visualizador de Carteiras ---
+def mostrar_visualizador_carteiras():
+    st.title("🗺️ Visualizador Geral de Carteiras")
 
-            df_memoria = carregar_memoria()
-            mem_by_id = {}
-            if 'ID_Cliente' in df_memoria.columns:
-                df_memoria['ID_Limp'] = df_memoria['ID_Cliente'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
-                mem_by_id = df_memoria.drop_duplicates(subset=['ID_Limp'], keep='last').set_index('ID_Limp').to_dict('index')
+    st.markdown("""
+        <div style="background-color: #fff3cd; padding: 20px; border-radius: 10px; border-left: 6px solid #ffc107; margin-bottom: 20px;">
+            <h4 style="color: #856404; margin-top: 0;">⚠️ Atenção: Regra de Importação</h4>
+            <p style="color: #856404; font-size: 15px;">
+                Para garantir o funcionamento da Aplicação é necessario que o arquivo tenha as seguintes colunas na primeira linha da base de dados: .<br>
+                <b>Código Cliente - Nome Vendedor - Nome Cliente - Endereço - Municipio - CEP - Bairro.<b>
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if 'cart_etapa' not in st.session_state: st.session_state['cart_etapa'] = 'config'
+    if 'df_cart_raw' not in st.session_state: st.session_state['df_cart_raw'] = None
+    if 'df_cart_final' not in st.session_state: st.session_state['df_cart_final'] = None
+    if 'cart_reset_count' not in st.session_state: st.session_state['cart_reset_count'] = 0
+
+    with st.sidebar:
+        st.divider()
+        if st.button("🔄 Reiniciar Visualizador de Carteiras", use_container_width=True):
+            st.session_state['cart_etapa'] = 'config'
+            st.session_state['df_cart_raw'] = None
+            st.session_state['df_cart_final'] = None
+            st.session_state['cart_sheet_selected'] = None 
+            st.session_state['cart_reset_count'] += 1      
+            st.rerun()
             
-            missing_indices = []
-            for idx, row in df.iterrows():
-                cod_cli = str(row.get(c['cod'], '')).replace('.0', '').strip().upper()
-                end_atual_bruto = row.get(c['end'], '')
-                end_atual_limpo = limpar_endereco_para_geocoding(end_atual_bruto) if pd.notna(end_atual_bruto) else ""
+        st.divider()
+        st.markdown("### ⚙️ Atualização Rápida")
+        if st.button("🔄 Recarregar Excel (Puxar alterações)", type="primary", use_container_width=True):
+            st.cache_data.clear()
+            st.session_state['df_cart_raw'] = None
+            st.session_state['df_cart_final'] = None
+            st.session_state['cart_etapa'] = 'config'
+            st.rerun()
+
+    if st.session_state['cart_etapa'] == 'config':
+        st.markdown("Importe a base de dados contendo toda a carteira da empresa (Excel ou CSV).")
+        modo_leitura = st.sidebar.radio(
+            "Como deseja carregar o arquivo?",
+            ["Modo Upload (📂)", "Modo Caminho Fixo (Atualiza via botão)"]
+        )
+        
+        uploaded = None
+
+        if modo_leitura == "Modo Caminho Fixo (Atualiza via botão)":
+            caminho_input = st.text_input("Cole o caminho completo do arquivo (Ex: C:\\Pasta\\planilha.xlsx):", 
+                value=st.session_state.get('caminho_fixo', ""))
+            if caminho_input:
+                import os
+                if os.path.exists(caminho_input):
+                    uploaded = caminho_input
+                    st.session_state['caminho_fixo'] = caminho_input 
+                    st.success("✅ Conectado! Se alterar o Excel, basta clicar em 'Recarregar Dados' ali do lado.")
+                else:
+                    st.error("⚠️ Arquivo não encontrado. Verifique o caminho digitado.")
+        else:
+            st.info("Aviso: Se alterar o Excel no seu PC, você precisará fechar no 'X' abaixo e puxar o arquivo novamente.")
+            uploaded = st.file_uploader("📂 Importar Tabela da Carteira", type=["xlsx", "csv"], 
+                                        key=f"up_cart_{st.session_state['cart_reset_count']}")
+        
+        if uploaded is not None:
+            import os
+            nome_arquivo = os.path.basename(uploaded) if isinstance(uploaded, str) else uploaded.name
+            
+            if nome_arquivo.endswith('.csv'):
+                st.session_state['df_cart_raw'] = pd.read_csv(uploaded, dtype=str)
+                aba_selecionada = "CSV"
+                linha_cabecalho = 1
+            else:
+                xls = pd.ExcelFile(uploaded)
+                sheet_names = xls.sheet_names
                 
-                if cod_cli in correcoes_dict:
-                    df.at[idx, 'LATITUDE'] = float(correcoes_dict[cod_cli]['Latitude'])
-                    df.at[idx, 'LONGITUDE'] = float(correcoes_dict[cod_cli]['Longitude'])
-                    df.at[idx, 'TIPO_DE_LOCALIZACAO'] = "Manual (Corrigido)"
-                    df.at[idx, c['end']] = correcoes_dict[cod_cli]['Endereco_Novo']
-                    df.at[idx, c['bairro']] = correcoes_dict[cod_cli]['Bairro_Novo']
-                elif cod_cli in mem_by_id and float(mem_by_id[cod_cli].get('Latitude', 0)) != 0:
-                    end_memoria = str(mem_by_id[cod_cli].get('End_Correto', '')).strip()
-                    if end_atual_limpo == end_memoria or end_memoria == "":
-                        df.at[idx, 'LATITUDE'] = float(mem_by_id[cod_cli]['Latitude'])
-                        df.at[idx, 'LONGITUDE'] = float(mem_by_id[cod_cli]['Longitude'])
-                        df.at[idx, 'TIPO_DE_LOCALIZACAO'] = mem_by_id[cod_cli]['Score'] + " (Memória)"
-                        if mem_by_id[cod_cli].get('End_Correto'): df.at[idx, c['end']] = mem_by_id[cod_cli]['End_Correto']
-                        if mem_by_id[cod_cli].get('Bairro_Correto'): df.at[idx, c['bairro']] = mem_by_id[cod_cli]['Bairro_Correto']
-                    else:
-                        missing_indices.append(idx)
+                if st.session_state.get('cart_sheet_selected') != nome_arquivo:
+                    st.divider()
+                    st.markdown("### ⚙️ Detalhes do Arquivo Excel")
+                    col_aba, col_linha = st.columns(2)
+                    aba_selecionada = col_aba.selectbox("Em qual aba estão os dados?", sheet_names, key="cart_aba")
+                    linha_cabecalho = col_linha.number_input("Em qual linha começa o cabeçalho?", min_value=1, value=1, step=1, key="cart_linha")
+                    
+                    if st.button("📥 Confirmar e Carregar Dados", type="primary"):
+                        st.session_state['df_cart_raw'] = pd.read_excel(uploaded, sheet_name=aba_selecionada, header=(linha_cabecalho - 1), dtype=str)
+                        st.session_state['cart_sheet_selected'] = nome_arquivo
+                        st.rerun()
+                        
+            if st.session_state['df_cart_raw'] is not None:
+                df_raw = st.session_state['df_cart_raw']
+                cols = df_raw.columns.tolist()
+                
+                def achar_coluna(palavras_chave):
+                    for col in cols:
+                        if any(p.lower() in str(col).lower() for p in palavras_chave): return cols.index(col)
+                    return 0
+                
+                st.divider()
+                st.markdown("### ⚙️ Mapeamento de Colunas")
+                
+                cols_opcionais = ["Não mapear"] + list(cols)
+                
+                def idx_opc(palavras):
+                    idx = achar_coluna(palavras)
+                    return idx + 1 if idx is not None and idx > 0 else 0
+
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    c_cod = st.selectbox("CÓDIGO DO CLIENTE", cols, index=achar_coluna(['cód', 'cod', 'id', 'sap']), key="c_cart_cod")
+                    c_nome = st.selectbox("NOME DO CLIENTE", cols, index=achar_coluna(['cliente', 'razão', 'nome', 'razao Social']), key="c_cart_nome")
+                    c_vendedor_atual = st.selectbox("VENDEDOR", cols, index=achar_coluna(['vendedor', 'vend']), key="c_cart_vend")
+                    c_bairro = st.selectbox("BAIRRO", cols, index=achar_coluna(['bairro']), key="c_cart_bairro")
+                    c_media = st.selectbox("MÉDIA 3 MESES (Opcional)", cols_opcionais, index=idx_opc(['média', 'media', '3 meses', 'valor']), key="c_cart_media")
+                
+                with col2:
+                    c_cep = st.selectbox("CEP", cols, index=achar_coluna(['cep']), key="c_cart_cep")
+                    c_end = st.selectbox("ENDEREÇO", cols, index=achar_coluna(['endereço', 'endereco', 'rua']), key="c_cart_end")
+                    c_municipio = st.selectbox("MUNICÍPIO", cols, index=achar_coluna(['cidade', 'município', 'mun']), key="c_cart_mun")
+                    c_status = st.selectbox("STATUS (Opcional)", cols_opcionais, index=idx_opc(['status', 'situação', 'situacao']), key="c_cart_status")
+                
+                st.write("##")
+                if st.button("🚀 INICIAR MAPEAMENTO DA CARTEIRA", type="primary", use_container_width=True):
+                    st.session_state['cart_cols'] = {
+                        'cod': c_cod, 
+                        'nome': c_nome, 
+                        'cep': c_cep, 
+                        'end': c_end, 
+                        'bairro': c_bairro, 
+                        'mun': c_municipio, 
+                        'vend': c_vendedor_atual,
+                        'media': c_media if c_media != "Não mapear" else None,
+                        'status': c_status if c_status != "Não mapear" else None
+                    }
+                    st.session_state['cart_etapa'] = 'proc'
+                    st.rerun()
+
+    elif st.session_state['cart_etapa'] == 'proc':
+        st.title("📡 Cruzando base com a Tabela de Correções e Satélite...")
+        df = st.session_state['df_cart_raw'].copy()
+        c = st.session_state['cart_cols']
+        
+        df['LATITUDE'] = 0.0
+        df['LONGITUDE'] = 0.0
+        df['TIPO_DE_LOCALIZACAO'] = 'Erro'
+        
+        df_correcoes = carregar_correcoes()
+        correcoes_dict = {}
+        if not df_correcoes.empty:
+            correcoes_dict = df_correcoes.set_index('Codigo').to_dict('index')
+
+        df_memoria = carregar_memoria()
+        mem_by_id = {}
+        if 'ID_Cliente' in df_memoria.columns:
+            df_memoria['ID_Limp'] = df_memoria['ID_Cliente'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.upper()
+            mem_by_id = df_memoria.drop_duplicates(subset=['ID_Limp'], keep='last').set_index('ID_Limp').to_dict('index')
+        
+        missing_indices = []
+        for idx, row in df.iterrows():
+            cod_cli = str(row.get(c['cod'], '')).replace('.0', '').strip().upper()
+            end_atual_bruto = row.get(c['end'], '')
+            end_atual_limpo = limpar_endereco_para_geocoding(end_atual_bruto) if pd.notna(end_atual_bruto) else ""
+            
+            if cod_cli in correcoes_dict:
+                df.at[idx, 'LATITUDE'] = float(correcoes_dict[cod_cli]['Latitude'])
+                df.at[idx, 'LONGITUDE'] = float(correcoes_dict[cod_cli]['Longitude'])
+                df.at[idx, 'TIPO_DE_LOCALIZACAO'] = "Manual (Corrigido)"
+                df.at[idx, c['end']] = correcoes_dict[cod_cli]['Endereco_Novo']
+                df.at[idx, c['bairro']] = correcoes_dict[cod_cli]['Bairro_Novo']
+            elif cod_cli in mem_by_id and float(mem_by_id[cod_cli].get('Latitude', 0)) != 0:
+                end_memoria = str(mem_by_id[cod_cli].get('End_Correto', '')).strip()
+                if end_atual_limpo == end_memoria or end_memoria == "":
+                    df.at[idx, 'LATITUDE'] = float(mem_by_id[cod_cli]['Latitude'])
+                    df.at[idx, 'LONGITUDE'] = float(mem_by_id[cod_cli]['Longitude'])
+                    df.at[idx, 'TIPO_DE_LOCALIZACAO'] = mem_by_id[cod_cli]['Score'] + " (Memória)"
+                    if mem_by_id[cod_cli].get('End_Correto'): df.at[idx, c['end']] = mem_by_id[cod_cli]['End_Correto']
+                    if mem_by_id[cod_cli].get('Bairro_Correto'): df.at[idx, c['bairro']] = mem_by_id[cod_cli]['Bairro_Correto']
                 else:
                     missing_indices.append(idx)
-                    
-            if missing_indices:
-                import time # Caso precise para a barra de progresso
-                try:
-                    from geopy.geocoders import ArcGIS # Garantindo a importação
-                    geo = ArcGIS(timeout=10)
-                except Exception:
-                    pass
-                novos_dados_memoria = []
-                st.caption(f"Buscando {len(missing_indices)} novos clientes no satélite...")
-                prog_bar = st.progress(0)
+            else:
+                missing_indices.append(idx)
                 
-                for i, idx in enumerate(missing_indices):
-                    row = df.loc[idx]
-                    cep = str(row[c['cep']]).strip().replace("-","").replace(".","")
-                    bairro = corrigir_texto_erp(row[c['bairro']]) if pd.notna(row[c['bairro']]) else ""
-                    municipio = corrigir_texto_erp(row[c['mun']]) if pd.notna(row[c['mun']]) else ""
-                    end_limpo = limpar_endereco_para_geocoding(row[c['end']])
-                    cod_cli = str(row.get(c['cod'], '')).replace('.0', '').strip().upper()
-                    chave = gerar_chave_cache(end_limpo, municipio, cep)
+        if missing_indices:
+            import time
+            try:
+                from geopy.geocoders import ArcGIS
+                geo = ArcGIS(timeout=10)
+            except Exception:
+                pass
+            novos_dados_memoria = []
+            st.caption(f"Buscando {len(missing_indices)} novos clientes no satélite...")
+            prog_bar = st.progress(0)
+            
+            for i, idx in enumerate(missing_indices):
+                row = df.loc[idx]
+                cep = str(row[c['cep']]).strip().replace("-","").replace(".","")
+                bairro = corrigir_texto_erp(row[c['bairro']]) if pd.notna(row[c['bairro']]) else ""
+                municipio = corrigir_texto_erp(row[c['mun']]) if pd.notna(row[c['mun']]) else ""
+                end_limpo = limpar_endereco_para_geocoding(row[c['end']])
+                cod_cli = str(row.get(c['cod'], '')).replace('.0', '').strip().upper()
+                chave = gerar_chave_cache(end_limpo, municipio, cep)
+                
+                try:
+                    busca_completa = f"{end_limpo}, {bairro}, {municipio}, {cep}, SP, Brasil"
+                    loc = geo.geocode(busca_completa)
                     
-                    try:
-                        busca_completa = f"{end_limpo}, {bairro}, {municipio}, {cep}, SP, Brasil"
-                        loc = geo.geocode(busca_completa)
-                        
-                        if loc and is_valid_sp_coord(loc.latitude, loc.longitude):
-                            lat, lon = loc.latitude, loc.longitude
-                            df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = lat, lon, "Exata"
-                            novos_dados_memoria.append({'Chave': chave, 'Latitude': lat, 'Longitude': lon, 'Score': "Exata", 'ID_Cliente': cod_cli, 'End_Correto': end_limpo, 'Bairro_Correto': bairro})
-                        else:
-                            df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = -1.0, -1.0, 'Erro (Tratamento Manual Necessário)'
-                    except:
-                        df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = -1.0, -1.0, 'Erro'
-                        
-                    prog_bar.progress((i + 1) / len(missing_indices))
+                    if loc and is_valid_sp_coord(loc.latitude, loc.longitude):
+                        lat, lon = loc.latitude, loc.longitude
+                        df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = lat, lon, "Exata"
+                        novos_dados_memoria.append({'Chave': chave, 'Latitude': lat, 'Longitude': lon, 'Score': "Exata", 'ID_Cliente': cod_cli, 'End_Correto': end_limpo, 'Bairro_Correto': bairro})
+                    else:
+                        df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = -1.0, -1.0, 'Erro (Tratamento Manual Necessário)'
+                except:
+                    df.at[idx, 'LATITUDE'], df.at[idx, 'LONGITUDE'], df.at[idx, 'TIPO_DE_LOCALIZACAO'] = -1.0, -1.0, 'Erro'
                     
-                if novos_dados_memoria:
-                    salvar_memoria(pd.DataFrame(novos_dados_memoria))
+                prog_bar.progress((i + 1) / len(missing_indices))
+                
+            if novos_dados_memoria:
+                salvar_memoria(pd.DataFrame(novos_dados_memoria))
 
-            df['VENDEDOR'] = df[c['vend']].fillna("SEM VENDEDOR")
-            st.session_state['df_cart_final'] = df
-            st.session_state['cart_etapa'] = 'dash'
-            st.rerun()
-        # ---> FIM DO BLOCO INSERIDO <---
-        
+        df['VENDEDOR'] = df[c['vend']].fillna("SEM VENDEDOR")
+        st.session_state['df_cart_final'] = df
+        st.session_state['cart_etapa'] = 'dash'
+        st.rerun()
 
-        # -------------------------------------------------------------------
-        # INICIALIZAÇÃO DE ESTADOS E FUNÇÕES DE CALLBACK
-        # -------------------------------------------------------------------
+    elif st.session_state['cart_etapa'] == 'dash':
+        df = st.session_state['df_cart_final']
+        c = st.session_state['cart_cols']
+
         if 'clientes_selecionados' not in st.session_state:
             st.session_state['clientes_selecionados'] = []
 
-        # Funções para atualizar o estado com segurança (callbacks)
         def callback_adicionar(cod):
             if cod not in st.session_state['clientes_selecionados']:
                 st.session_state['clientes_selecionados'].append(cod)
@@ -1484,7 +1467,6 @@ def mostrar_visualizador_operacional():
         center_lat = df_mapa['LATITUDE'].mean() if not df_mapa.empty else -23.5505
         center_lng = df_mapa['LONGITUDE'].mean() if not df_mapa.empty else -46.6333
 
-        # Criando o mapa
         mapa = folium.Map(
             location=[center_lat, center_lng],
             zoom_start=11,
@@ -1498,7 +1480,6 @@ def mostrar_visualizador_operacional():
             cor_pino = cor_dict.get(row['VENDEDOR'], "#000000")
             link_maps_oficial = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
             
-            # Formatação Média 3 Meses
             linha_media = ""
             if c.get('media'):
                 valor_bruto = row.get(c['media'], '')
@@ -1509,7 +1490,6 @@ def mostrar_visualizador_operacional():
                     media_formatada = str(valor_bruto) if valor_bruto != '' else "-"
                 linha_media = f"<tr><td><strong>Média 3 Meses:</strong></td><td>{media_formatada}</td></tr>"
 
-            # Formatação Status
             linha_status = ""
             if c.get('status'):
                 status_val = row.get(c['status'], '')
@@ -1518,7 +1498,6 @@ def mostrar_visualizador_operacional():
 
             is_selected = cod_cliente in st.session_state['clientes_selecionados']
 
-            # Pop-up do Cliente
             popup_content = f"""
             <div style="font-family: Arial, sans-serif; width: 280px; padding: 5px;">
                 <strong style="font-size: 14px; color: {cor_pino};">{row.get(c['nome'],'')}</strong><br>
@@ -1543,7 +1522,6 @@ def mostrar_visualizador_operacional():
             """
 
             if is_selected:
-                # 🌟 Marcador Dourado com Estrela Branca (#D3AF37)
                 svg_estrela_dourada = """
                 <div style="width: 30px; height: 42px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4));">
                     <svg width="30" height="42" viewBox="0 0 30 42" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1575,7 +1553,6 @@ def mostrar_visualizador_operacional():
                     popup=folium.Popup(popup_content, max_width=300)
                 ).add_to(mapa)
 
-        # Renderização do Mapa
         mapa_dados = st_folium(
             mapa, 
             height=750, 
@@ -1584,9 +1561,6 @@ def mostrar_visualizador_operacional():
             key="mapa_carteiras_v8"
         )
 
-        # -------------------------------------------------------------------
-        # PAINEL DE AÇÃO NATIVO
-        # -------------------------------------------------------------------
         if mapa_dados and mapa_dados.get("last_object_clicked_tooltip"):
             cod_clicado = str(mapa_dados["last_object_clicked_tooltip"])
             df_cli = df_mapa[df_mapa[c['cod']].astype(str) == cod_clicado]
@@ -1614,14 +1588,10 @@ def mostrar_visualizador_operacional():
                             args=(cod_clicado,)
                         )
 
-        # -------------------------------------------------------------------
-        # LISTA DE EXPORTAÇÃO E DOWNLOAD EXCEL
-        # -------------------------------------------------------------------
         if st.session_state['clientes_selecionados']:
             st.divider()
             st.markdown("### 📥 Clientes Selecionados para Exportação")
             
-            # Inicializa a chave da lista no session_state caso ainda não exista
             if "seletor_clientes_export" not in st.session_state:
                 st.session_state["seletor_clientes_export"] = list(st.session_state['clientes_selecionados'])
 
@@ -1632,7 +1602,6 @@ def mostrar_visualizador_operacional():
                 on_change=callback_atualizar_multiselect
             )
             
-            # Botão Limpar Tudo usando callback seguro para evitar StreamlitWidgetAlreadyInstantiatedError
             st.button(
                 "🗑️ Limpar Toda a Seleção", 
                 key="btn_limpar_tudo_export",
@@ -1665,7 +1634,7 @@ def mostrar_visualizador_operacional():
                 mime="application/vnd.ms-excel",
                 type="primary",
                 key="btn_baixar_excel_export"
-            )
+            )            
 # ==========================================
 # 6. APLICAÇÃO PRINCIPAL
 # ==========================================

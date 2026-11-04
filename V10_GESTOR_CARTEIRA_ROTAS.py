@@ -1355,10 +1355,6 @@ def mostrar_visualizador_operacional():
                         st.session_state['cart_etapa'] = 'proc'
                         st.rerun()
     
-        elif st.session_state['cart_etapa'] == 'dash':
-            df = st.session_state['df_cart_final']
-            c = st.session_state['cart_cols']
-            # ---> COLE ESTE BLOCO AQUI (É ELE QUE BUSCA NO SATÉLITE E SALVA NO BANCO) <---
         elif st.session_state['cart_etapa'] == 'proc':
             st.title("📡 Cruzando base com a Tabela de Correções e Satélite...")
             df = st.session_state['df_cart_raw'].copy()
